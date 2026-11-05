@@ -15,12 +15,24 @@ import { createHmac } from 'crypto';
 import { getClientIp } from 'request-ip';
 import { PaymentPlan } from '@prisma/client';
 
+const ONE_TIME_PLAN_ON_SALE = false;
+
 export const initOneTimePayment = async (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
   try {
+    // The ₦1,100 one-time plan is no longer sold. Students who bought it keep it.
+    // Set ONE_TIME_PLAN_ON_SALE to true to sell it again.
+    if (!ONE_TIME_PLAN_ON_SALE) {
+      return res.status(410).json({
+        ok: false,
+        message:
+          'The one-time plan is no longer available. Choose a monthly plan, or use a code from your school.',
+      });
+    }
+
     const { email, firstname, lastname, schoolLocation, paymentPlan } =
       req.body;
 
@@ -61,6 +73,15 @@ export const initMonthlySubscription = async (
         ok: false,
         message:
           'Email, firstname, lastname, schoolLocation, and paymentPlan are required',
+      });
+    }
+
+    // Only the two monthly plans can be bought. The school plan comes from a
+    // school code and is never charged.
+    if (paymentPlan !== 'LOCAL_MONTHLY' && paymentPlan !== 'GLOBAL_MONTHLY') {
+      return res.status(400).json({
+        ok: false,
+        message: 'Choose the Local or Global monthly plan.',
       });
     }
 

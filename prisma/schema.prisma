@@ -28,9 +28,10 @@ enum Gender {
 
 // Enum for payment plans
 enum PaymentPlan {
-  BASIC_ONETIME
+  BASIC_ONETIME // no longer sold; kept for students who bought it
   LOCAL_MONTHLY
   GLOBAL_MONTHLY
+  SCHOOL_PARTNER // covered by a partner school's code, never charged
 }
 
 enum TransactionStatus {
@@ -147,6 +148,7 @@ model User {
   userCards               UserCard[]          // Link to user's cards
   userDirectDebits UserDirectDebit[]
   academicRecords AcademicRecord[]
+  schoolCodeRedemptions SchoolCodeRedemption[]
 }
 
 
@@ -551,4 +553,37 @@ model PilotRequest {
 
   @@index([createdAt])
   @@map("pilot_requests")
+}
+
+// A code a partner school gives its students. It opens the School partner plan
+// (every AlignTraits feature, no payment) for up to `seats` students, and stops
+// working 30 days after it is created. Admins create codes in the admin panel.
+model SchoolCode {
+  id          String                 @id @default(uuid())
+  code        String                 @unique // 6 letters and numbers, no 0, O, 1, I or L
+  schoolName  String
+  seats       Int                    @default(20)
+  used        Int                    @default(0)
+  active      Boolean                @default(true)
+  createdById String?
+  createdAt   DateTime               @default(now())
+  expiresAt   DateTime
+  redemptions SchoolCodeRedemption[]
+
+  @@index([createdAt])
+  @@map("school_codes")
+}
+
+// Which student used which school code.
+model SchoolCodeRedemption {
+  id        String     @id @default(uuid())
+  codeId    String
+  code      SchoolCode @relation(fields: [codeId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+
+  @@unique([codeId, userId])
+  @@index([userId])
+  @@map("school_code_redemptions")
 }

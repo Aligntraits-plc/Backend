@@ -18,10 +18,13 @@ const paystack = Paystack(process.env.PAYSTACK_SECRET_KEY || '');
 // };
 
 // Amounts in kobo (₦1 = 100 kobo) — must match frontend PaywallModal
+// Amounts in kobo. BASIC_ONETIME is no longer sold (kept so old records still
+// read correctly) and SCHOOL_PARTNER is never charged: a school code covers it.
 const PRICES: Record<PaymentPlan, number> = {
-  BASIC_ONETIME: 110000, // ₦350
-  LOCAL_MONTHLY: 370000, // ₦1,100
-  GLOBAL_MONTHLY: 550000, // ₦3,700
+  BASIC_ONETIME: 110000, // ₦1,100
+  LOCAL_MONTHLY: 370000, // ₦3,700
+  GLOBAL_MONTHLY: 550000, // ₦5,500
+  SCHOOL_PARTNER: 0,
 };
 
 // actual aligntrait test paystack plan codes (NGN only)
@@ -29,6 +32,7 @@ const PAYSTACK_PLAN_CODES: Record<PaymentPlan, string> = {
   BASIC_ONETIME: '', // Not needed for one-time payments
   LOCAL_MONTHLY: 'PLN_ecyxncshvduhvce',
   GLOBAL_MONTHLY: 'PLN_dl04vz6m7ro235e',
+  SCHOOL_PARTNER: '', // never charged
 };
 
 export const initializeBasicOneTimePayment = async (

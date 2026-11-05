@@ -20,6 +20,7 @@ import {
 import { getUserById, updateUser, getUserByEmail } from '../models/userModel';
 import { parseDate } from '../lib/utils';
 import { db } from '../config/db';
+import { getSchoolAccessForUser } from './schoolCodeService';
 import MessageResponse from '../types/messageResponse';
 
 // Extend the User type with relations
@@ -107,6 +108,7 @@ export const getUserDataService = async (
     interests: Interest[];
     skills: Skill[];
     subscriptionPlanStatus: boolean;
+    schoolAccess: { schoolName: string; expiresAt: Date } | null;
   };
   errors?: { message: string }[];
 }> => {
@@ -141,6 +143,12 @@ export const getUserDataService = async (
     const expiresAt = user.payment_plan_expires_at;
     const subscriptionPlanStatus =
       expiresAt !== null && new Date(expiresAt) > currentDate;
+    // Students covered by a partner school: which school, and until when.
+    // Only looked up for that plan, so nothing else depends on the new tables.
+    const schoolAccess =
+      user.payment_plan === 'SCHOOL_PARTNER'
+        ? await getSchoolAccessForUser(user.id).catch(() => null)
+        : null;
     return {
       ok: true,
       status: 200,
@@ -178,6 +186,7 @@ export const getUserDataService = async (
         interests: user.interests,
         skills: user.skills,
         subscriptionPlanStatus,
+        schoolAccess,
       },
     };
   } catch (e) {

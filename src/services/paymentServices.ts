@@ -12,6 +12,7 @@ const PRICES: Record<PaymentPlan, { NGN: number; USD: number }> = {
   BASIC_ONETIME: { NGN: 200000, USD: 399 }, // ₦2,000, $3.99
   LOCAL_MONTHLY: { NGN: 550000, USD: 899 }, // ₦5,500, $8.99
   GLOBAL_MONTHLY: { NGN: 950000, USD: 1499 }, // ₦9,500, $14.99
+  SCHOOL_PARTNER: { NGN: 0, USD: 0 }, // never charged: a school code covers it
 };
 
 // export const initializeSubscriptionPaymentService = async (

@@ -104,6 +104,27 @@ export const adminContCrtorLoginRequired = async (
   }
 };
 
+// Uses the login when there is a valid one, and carries on as a visitor when
+// there is none (or it has expired). For routes that serve both.
+export const optionalLogin = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+) => {
+  const token = req.headers.authorization?.split(' ')[1];
+  if (!token) return next();
+  try {
+    const verified = jwt.verify(token, process.env.JWT_SECRET as string) as {
+      userId: string;
+    };
+    const user = await getUserById(verified.userId);
+    if (user) req.user = user;
+  } catch {
+    // Not a usable login: treat as a visitor.
+  }
+  next();
+};
+
 // Any admin panel account, including analysts. Used for read only staff tools
 // such as the school and course export.
 export const staffLoginRequired = async (
