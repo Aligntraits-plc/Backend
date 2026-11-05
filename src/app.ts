@@ -2,9 +2,9 @@ import express from 'express';
 import morgan from 'morgan';
 import helmet from 'helmet';
 import passport from 'passport';
-import cors from 'cors';
 
 import * as middlewares from './middlewares';
+import { originLock } from './middlewares/originLock';
 import api from './api';
 import MessageResponse from './types/messageResponse';
 import { scheduleClearBulkOperationFailuresJob } from './jobs/clearBulkOperationFailuresJob';
@@ -18,7 +18,8 @@ app.set('trust proxy', true); // Trust ngrok/Render proxies
 
 app.use(morgan('dev'));
 app.use(helmet());
-app.use(cors());
+// Only aligntraits.com may call the API from a browser (see middlewares/originLock.ts).
+app.use(originLock());
 app.use(express.json());
 app.use(passport.initialize()); // Initialize Passport
 
