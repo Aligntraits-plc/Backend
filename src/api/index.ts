@@ -24,6 +24,7 @@ import MonthlyPaymentRoutes from '../routes/monthlyPaymentRoutes';
 import BulkImageuploadRoutes from '../routes/bulkImageuploadRoute';
 import FormsRoutes from '../routes/formsRoutes';
 import SchoolCodeRoutes from '../routes/schoolCodeRoutes';
+import CommunityRoutes from '../routes/communityRoutes';
 
 const router = express.Router();
 
@@ -58,5 +59,6 @@ router.use('/images', BulkImageuploadRoutes);
 // Website forms: ambassador applications and pilot requests
 router.use('/forms', FormsRoutes);
 router.use('/school-codes', SchoolCodeRoutes);
+router.use('/community', CommunityRoutes);
 
 export default router;

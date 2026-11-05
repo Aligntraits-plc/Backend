@@ -8,6 +8,7 @@ import * as middlewares from './middlewares';
 import api from './api';
 import MessageResponse from './types/messageResponse';
 import { scheduleClearBulkOperationFailuresJob } from './jobs/clearBulkOperationFailuresJob';
+import { scheduleCommunityReminderJob } from './jobs/communityReminderJob';
 
 require('dotenv').config();
 
@@ -34,6 +35,7 @@ app.get<{}, MessageResponse>('/', (req, res) => {
 app.use('/api/v1', api);
 // Start the cron job when the application starts
 scheduleClearBulkOperationFailuresJob();
+scheduleCommunityReminderJob();
 
 app.use(middlewares.notFound);
 app.use(middlewares.errorHandler);

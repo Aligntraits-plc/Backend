@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title><%= headline %></title>
+</head>
+<body style="margin:0;padding:24px;background:#f2f5f9;font-family:Arial,Helvetica,sans-serif;color:#002650;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:600px;margin:0 auto;background:#ffffff;border:1px solid #dbe4ee;border-radius:12px;">
+    <tr>
+      <td style="padding:28px;">
+        <img src="https://res.cloudinary.com/dnd6g0t90/image/upload/v1734808959/full-logo_jvosfh.png" alt="AlignTraits" width="160" style="display:block;margin:0 0 20px;">
+        <% if (label) { %>
+        <p style="margin:0 0 10px;font-size:13px;font-weight:bold;color:#0071ed;text-transform:none;"><%= label %></p>
+        <% } %>
+        <h1 style="margin:0 0 16px;font-size:22px;line-height:30px;color:#004085;"><%= headline %></h1>
+        <p style="margin:0 0 14px;font-size:15px;line-height:24px;">Hi <%= name %>,</p>
+        <% lines.forEach(function (line) { %>
+        <p style="margin:0 0 10px;font-size:15px;line-height:24px;"><%= line %></p>
+        <% }) %>
+        <% if (details && details.length) { %>
+        <table role="presentation" cellpadding="0" cellspacing="0" style="margin:16px 0 20px;width:100%;background:#f2f5f9;border-radius:10px;">
+          <tr><td style="padding:14px 16px;">
+            <% details.forEach(function (d) { %>
+            <p style="margin:0 0 6px;font-size:14px;line-height:22px;"><strong><%= d.label %>:</strong> <%= d.value %></p>
+            <% }) %>
+          </td></tr>
+        </table>
+        <% } %>
+        <% if (ctaUrl) { %>
+        <p style="margin:0 0 12px;">
+          <a href="<%= ctaUrl %>" style="display:inline-block;padding:12px 22px;background:#004085;color:#ffffff;text-decoration:none;border-radius:999px;font-size:15px;font-weight:bold;"><%= ctaLabel %></a>
+        </p>
+        <% } %>
+        <% if (secondaryUrl) { %>
+        <p style="margin:0 0 20px;font-size:14px;"><a href="<%= secondaryUrl %>" style="color:#0071ed;"><%= secondaryLabel %></a></p>
+        <% } %>
+        <p style="margin:24px 0 0;font-size:15px;line-height:24px;">The AlignTraits team</p>
+      </td>
+    </tr>
+  </table>
+  <p style="max-width:600px;margin:14px auto 0;font-size:12px;line-height:18px;color:#33669d;text-align:center;"><%= footer %></p>
+</body>
+</html>

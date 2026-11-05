@@ -149,6 +149,15 @@ model User {
   userDirectDebits UserDirectDebit[]
   academicRecords AcademicRecord[]
   schoolCodeRedemptions SchoolCodeRedemption[]
+  communityMemberships    CommunityMembership[]
+  communityMessages       CommunityMessage[]
+  communityReactions      CommunityReaction[]
+  communityReports        CommunityReport[]
+  communityProfile        CommunityProfile?
+  communityTeamThread     CommunityTeamThread?
+  communityTeamMessages   CommunityTeamMessage[]
+  communityEventsCreated  CommunityEvent[]
+  communityEventReminders CommunityEventReminder[]
 }
 
 
@@ -586,4 +595,195 @@ model SchoolCodeRedemption {
   @@unique([codeId, userId])
   @@index([userId])
   @@map("school_code_redemptions")
+}
+
+
+// ---------------------------------------------------------------------------
+// Community: channels, messages with the AlignTraits team, and events.
+// Students only talk in public channels (seen by moderators) or privately with
+// the AlignTraits team. There are no student to student private messages.
+// ---------------------------------------------------------------------------
+
+enum CommunityEventKind {
+  LIVE_SESSION
+  WORKSHOP
+  MEETUP
+  DEADLINE
+  EXAM // an exam window, like the UTME or WASSCE (starts on startsAt, ends on endsAt)
+}
+
+enum CommunityEventFormat {
+  ONLINE
+  IN_PERSON
+}
+
+enum CommunityEventStatus {
+  SCHEDULED
+  CANCELLED
+}
+
+model CommunityChannel {
+  id          String                @id @default(uuid())
+  slug        String                @unique
+  name        String
+  description String
+  welcome     String
+  position    Int                   @default(0)
+  archived    Boolean               @default(false)
+  createdAt   DateTime              @default(now())
+  memberships CommunityMembership[]
+  messages    CommunityMessage[]
+
+  @@map("community_channels")
+}
+
+model CommunityMembership {
+  id         String           @id @default(uuid())
+  channelId  String
+  channel    CommunityChannel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId     String
+  user       User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  joinedAt   DateTime         @default(now())
+  lastReadAt DateTime         @default(now())
+
+  @@unique([channelId, userId])
+  @@index([userId])
+  @@map("community_memberships")
+}
+
+model CommunityMessage {
+  id        String              @id @default(uuid())
+  channelId String
+  channel   CommunityChannel    @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User                @relation(fields: [userId], references: [id], onDelete: Cascade)
+  body      String
+  fromStaff Boolean             @default(false)
+  pinned    Boolean             @default(false)
+  hidden    Boolean             @default(false) // hidden after reports, until an admin reviews it
+  deletedAt DateTime?
+  createdAt DateTime            @default(now())
+  reactions CommunityReaction[]
+  reports   CommunityReport[]
+
+  @@index([channelId, createdAt])
+  @@map("community_messages")
+}
+
+model CommunityReaction {
+  id        String           @id @default(uuid())
+  messageId String
+  message   CommunityMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String
+  createdAt DateTime         @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@map("community_reactions")
+}
+
+model CommunityReport {
+  id         String           @id @default(uuid())
+  messageId  String
+  message    CommunityMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  reporterId String
+  reporter   User             @relation(fields: [reporterId], references: [id], onDelete: Cascade)
+  reason     String?
+  createdAt  DateTime         @default(now())
+  resolvedAt DateTime?
+  resolution String?
+
+  @@unique([messageId, reporterId])
+  @@index([resolvedAt])
+  @@map("community_reports")
+}
+
+// One row per student who has used Community: rules accepted, and mutes set by admins.
+model CommunityProfile {
+  id              String    @id @default(uuid())
+  userId          String    @unique
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rulesAcceptedAt DateTime?
+  mutedUntil      DateTime?
+  muteReason      String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@map("community_profiles")
+}
+
+// A student's private conversation with the AlignTraits team. Every admin sees
+// every conversation (a shared team inbox), never a one to one with one person.
+model CommunityTeamThread {
+  id            String                 @id @default(uuid())
+  userId        String                 @unique
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  lastMessageAt DateTime               @default(now())
+  studentReadAt DateTime               @default(now())
+  staffReadAt   DateTime?
+  createdAt     DateTime               @default(now())
+  messages      CommunityTeamMessage[]
+
+  @@index([lastMessageAt])
+  @@map("community_team_threads")
+}
+
+model CommunityTeamMessage {
+  id        String              @id @default(uuid())
+  threadId  String
+  thread    CommunityTeamThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  senderId  String?
+  sender    User?               @relation(fields: [senderId], references: [id], onDelete: SetNull)
+  fromStaff Boolean             @default(false)
+  body      String
+  createdAt DateTime            @default(now())
+
+  @@index([threadId, createdAt])
+  @@map("community_team_messages")
+}
+
+model CommunityEvent {
+  id           String                   @id @default(uuid())
+  title        String
+  kind         CommunityEventKind
+  format       CommunityEventFormat
+  status       CommunityEventStatus     @default(SCHEDULED)
+  startsAt     DateTime
+  endsAt       DateTime?
+  hostName     String?
+  hostRole     String?
+  summary      String                   @default("")
+  agenda       String[]                 @default([])
+  platform     String? // online: "AlignTraits Live", "Google Meet"...
+  joinUrl      String? // online: the meeting link
+  venue        String? // in person
+  address      String? // in person
+  mapUrl       String? // in person, optional; built from the address when empty
+  linkUrl      String? // any event: official site or more information
+  linkLabel    String?
+  recordingUrl String? // online, after it ends
+  createdById  String?
+  createdBy    User?                    @relation(fields: [createdById], references: [id], onDelete: SetNull)
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  reminders    CommunityEventReminder[]
+
+  @@index([startsAt])
+  @@map("community_events")
+}
+
+model CommunityEventReminder {
+  id          String         @id @default(uuid())
+  eventId     String
+  event       CommunityEvent @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt   DateTime       @default(now())
+  dayEmailAt  DateTime? // when the "tomorrow" email went out
+  hourEmailAt DateTime? // when the "in an hour" email went out
+
+  @@unique([eventId, userId])
+  @@index([userId])
+  @@map("community_event_reminders")
 }
