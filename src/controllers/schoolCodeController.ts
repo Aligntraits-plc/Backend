@@ -12,6 +12,8 @@ export const createSchoolCode = async (req: Request, res: Response, next: NextFu
       schoolName: req.body?.schoolName,
       seats: req.body?.seats,
       adminId: (req.user as any)?.id ?? '',
+      partnerSchoolId: req.body?.partnerSchoolId,
+      days: req.body?.days,
     });
     res.status(result.status).json(result);
   } catch (error) {

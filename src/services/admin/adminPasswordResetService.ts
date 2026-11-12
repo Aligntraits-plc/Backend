@@ -8,12 +8,13 @@ import {
 import { generateOTP } from '../../lib/utils';
 import { sendResetPasswordEmail } from '../mailServices';
 import MessageResponse from '../../types/messageResponse';
+import { isStaffLogin } from '../roles';
 
 const requestAdminResetService = async (
   email: string
 ): Promise<MessageResponse> => {
   const user = await getUserByEmail(email);
-  if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN')) {
+  if (!user || !isStaffLogin(user)) {
     throw new Error('Admin does not exist');
   }
 
@@ -63,7 +64,7 @@ const verifyAdminResetTokenService = async ({
   }
 
   const user = await getUserByEmail(email);
-  if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN')) {
+  if (!user || !isStaffLogin(user)) {
     throw new Error('Admin not found');
   }
 
@@ -114,7 +115,7 @@ const resetAdminPasswordService = async ({
   }
 
   const user = await getUserByEmail(email);
-  if (!user || (user.role !== 'ADMIN' && user.role !== 'SUPER_ADMIN')) {
+  if (!user || !isStaffLogin(user)) {
     throw new Error('Admin not found');
   }
 

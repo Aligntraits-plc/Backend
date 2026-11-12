@@ -25,6 +25,7 @@ import BulkImageuploadRoutes from '../routes/bulkImageuploadRoute';
 import FormsRoutes from '../routes/formsRoutes';
 import SchoolCodeRoutes from '../routes/schoolCodeRoutes';
 import CommunityRoutes from '../routes/communityRoutes';
+import RolesRoutes from '../routes/rolesRoutes';
 
 const router = express.Router();
 
@@ -60,5 +61,6 @@ router.use('/images', BulkImageuploadRoutes);
 router.use('/forms', FormsRoutes);
 router.use('/school-codes', SchoolCodeRoutes);
 router.use('/community', CommunityRoutes);
+router.use('/', RolesRoutes);
 
 export default router;

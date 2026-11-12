@@ -14,7 +14,8 @@ enum Roles {
   USER
   SUPER_ADMIN
   CONTENT_MANAGER
-  ANALYST
+  ANALYST // no longer offered for new accounts
+  COUNSELLOR // staff of a partner secondary school; uses the school portal only
 }
 
 enum Gender {
@@ -158,6 +159,9 @@ model User {
   communityTeamMessages   CommunityTeamMessage[]
   communityEventsCreated  CommunityEvent[]
   communityEventReminders CommunityEventReminder[]
+  partnerSchoolStaff      PartnerSchoolStaff?
+  partnerSchoolStudent    PartnerSchoolStudent?
+  ambassadorProfile       AmbassadorProfile?
 }
 
 
@@ -577,6 +581,7 @@ model SchoolCode {
   createdById String?
   createdAt   DateTime               @default(now())
   expiresAt   DateTime
+  partnerSchoolId String? // the partner school this code belongs to (older codes have none)
   redemptions SchoolCodeRedemption[]
 
   @@index([createdAt])
@@ -620,6 +625,7 @@ enum CommunityEventFormat {
 enum CommunityEventStatus {
   SCHEDULED
   CANCELLED
+  DRAFT // suggested by an ambassador; students only see it after an admin approves it
 }
 
 model CommunityChannel {
@@ -631,6 +637,7 @@ model CommunityChannel {
   position    Int                   @default(0)
   archived    Boolean               @default(false)
   createdAt   DateTime              @default(now())
+  partnerSchoolId String?           @unique // set on a school's own channel: only its students and counsellors see it
   memberships CommunityMembership[]
   messages    CommunityMessage[]
 
@@ -786,4 +793,227 @@ model CommunityEventReminder {
   @@unique([eventId, userId])
   @@index([userId])
   @@map("community_event_reminders")
+}
+
+
+// ---------------------------------------------------------------------------
+// Roles v1: partner schools and counsellors, invitations, ambassadors,
+// private chats between classmates, and the student dashboard.
+// These tables are also created on start-up by src/services/rolesTables.ts.
+// Keep the two in step: if you change a model here, change the SQL there too.
+// ---------------------------------------------------------------------------
+
+// A partner secondary school. (The "School" model above is universities.)
+model PartnerSchool {
+  id           String                 @id @default(uuid())
+  name         String                 @unique
+  state        String?
+  contactEmail String?
+  active       Boolean                @default(true)
+  createdById  String?
+  createdAt    DateTime               @default(now())
+  staff        PartnerSchoolStaff[]
+  students     PartnerSchoolStudent[]
+
+  @@map("partner_schools")
+}
+
+// A counsellor account and the school it belongs to.
+model PartnerSchoolStaff {
+  id        String        @id @default(uuid())
+  schoolId  String
+  school    PartnerSchool @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  userId    String        @unique
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime      @default(now())
+
+  @@index([schoolId])
+  @@map("partner_school_staff")
+}
+
+// A student and their school. A student has one school at a time.
+model PartnerSchoolStudent {
+  id                 String        @id @default(uuid())
+  schoolId           String
+  school             PartnerSchool @relation(fields: [schoolId], references: [id], onDelete: Cascade)
+  userId             String        @unique
+  user               User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  source             String        @default("self") // self | code | invite | assisted
+  classLevel         String?
+  consentAt          DateTime? // when the student was told the school can see their results
+  removedAt          DateTime? // set when a counsellor removes someone who is not their student
+  reportApprovedAt   DateTime? // counsellor review of the take-home report
+  reportApprovedById String?
+  createdAt          DateTime      @default(now())
+
+  @@index([schoolId])
+  @@map("partner_school_students")
+}
+
+// Emails a counsellor invited to join their school.
+model PartnerSchoolInvite {
+  id          String   @id @default(uuid())
+  schoolId    String
+  email       String
+  invitedById String?
+  createdAt   DateTime @default(now())
+
+  @@unique([schoolId, email])
+  @@index([createdAt])
+  @@map("partner_school_invites")
+}
+
+// "My school is not listed": the student gives the school's email, we invite the school.
+model SchoolListingRequest {
+  id          String   @id @default(uuid())
+  userId      String?
+  studentName String
+  schoolName  String
+  schoolEmail String
+  status      String   @default("new") // new | contacted | partnered | closed
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
+  @@map("school_listing_requests")
+}
+
+// A school buying seats for its students (card payment through Paystack).
+model SchoolSeatPurchase {
+  id          String    @id @default(uuid())
+  schoolId    String
+  seats       Int
+  amount      Int // naira
+  reference   String    @unique
+  status      String    @default("pending") // pending | paid | failed
+  codeId      String?
+  createdById String?
+  createdAt   DateTime  @default(now())
+  paidAt      DateTime?
+
+  @@index([schoolId])
+  @@map("school_seat_purchases")
+}
+
+// An emailed invitation to become staff, a counsellor or an ambassador.
+// Only a hash of the link's token is stored.
+model RoleInvite {
+  id              String    @id @default(uuid())
+  email           String
+  role            String // SUPER_ADMIN | ADMIN | CONTENT_MANAGER | COUNSELLOR | AMBASSADOR
+  partnerSchoolId String?
+  tokenHash       String    @unique
+  invitedById     String?
+  createdAt       DateTime  @default(now())
+  expiresAt       DateTime
+  acceptedAt      DateTime?
+  revokedAt       DateTime?
+
+  @@index([email])
+  @@map("role_invites")
+}
+
+// An ambassador is a student with extra tools: a tag and a referral link.
+model AmbassadorProfile {
+  id          String   @id @default(uuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  code        String   @unique
+  active      Boolean  @default(true)
+  createdById String?
+  createdAt   DateTime @default(now())
+
+  @@map("ambassador_profiles")
+}
+
+// A student who joined through an ambassador's link.
+model AmbassadorReferral {
+  id           String   @id @default(uuid())
+  ambassadorId String
+  userId       String   @unique
+  createdAt    DateTime @default(now())
+
+  @@index([ambassadorId])
+  @@map("ambassador_referrals")
+}
+
+// Invite emails sent by ambassadors. An address is only ever invited once.
+model AmbassadorInvite {
+  id           String   @id @default(uuid())
+  ambassadorId String
+  email        String   @unique
+  createdAt    DateTime @default(now())
+
+  @@index([ambassadorId, createdAt])
+  @@map("ambassador_invites")
+}
+
+// A private chat between two students of the same school. It starts as an
+// invitation and opens when the other student accepts.
+model DirectThread {
+  id            String          @id @default(uuid())
+  lowId         String // the two students, smaller id first
+  highId        String
+  requestedById String
+  status        String          @default("pending") // pending | accepted | declined | blocked
+  blockedById   String?
+  reportedById  String?
+  reportedAt    DateTime?
+  reportReason  String?
+  createdAt     DateTime        @default(now())
+  acceptedAt    DateTime?
+  lastMessageAt DateTime?
+  lowReadAt     DateTime?
+  highReadAt    DateTime?
+  messages      DirectMessage[]
+
+  @@unique([lowId, highId])
+  @@index([highId])
+  @@map("direct_threads")
+}
+
+model DirectMessage {
+  id        String       @id @default(uuid())
+  threadId  String
+  thread    DirectThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  userId    String
+  body      String
+  createdAt DateTime     @default(now())
+
+  @@index([threadId, createdAt])
+  @@map("direct_messages")
+}
+
+// Courses a student saved to their shortlist, one per admission tier.
+model ShortlistItem {
+  id        String   @id @default(uuid())
+  userId    String
+  courseId  String
+  tier      String // reach | realistic | safety
+  createdAt DateTime @default(now())
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@map("shortlist_items")
+}
+
+// Applications a student tracks for themselves.
+model StudentApplication {
+  id        String   @id @default(uuid())
+  userId    String
+  courseId  String
+  status    String   @default("planning") // planning | submitted | under_review | offer | not_offered
+  createdAt DateTime @default(now())
+  updatedAt DateTime @default(now()) @updatedAt
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@map("student_applications")
+}
+
+// When each admin last opened Requests, for the notification badge.
+model StaffSeen {
+  userId         String   @id
+  requestsSeenAt DateTime @default(now())
+
+  @@map("staff_seen")
 }

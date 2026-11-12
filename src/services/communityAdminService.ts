@@ -14,12 +14,16 @@ type Admin = { id: string; firstname?: string | null; lastname?: string | null; 
 
 const KINDS = ['LIVE_SESSION', 'WORKSHOP', 'MEETUP', 'DEADLINE', 'EXAM'] as const;
 const FORMATS = ['ONLINE', 'IN_PERSON'] as const;
-const STATUSES = ['SCHEDULED', 'CANCELLED'] as const;
+const STATUSES = ['SCHEDULED', 'CANCELLED', 'DRAFT'] as const;
 
 const text = (v: unknown, max: number) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
 const optionalText = (v: unknown, max: number) => text(v, max) || null;
 
 type EventInput = Record<string, unknown>;
+
+export function parseEventInput(input: EventInput, partial: boolean) {
+  return parseEvent(input, partial);
+}
 
 function parseEvent(input: EventInput, partial: boolean) {
   const data: Record<string, unknown> = {};
@@ -97,8 +101,18 @@ const adminEventInclude = { _count: { select: { reminders: true } } };
 
 export async function adminListEventsService() {
   await ensureCommunity();
-  const rows = await db.communityEvent.findMany({ orderBy: { startsAt: 'desc' }, take: 300, include: adminEventInclude });
-  return ok(rows.map(presentEvent));
+  const rows = await db.communityEvent.findMany({
+    orderBy: { startsAt: 'desc' },
+    take: 300,
+    include: { ...adminEventInclude, createdBy: { select: { firstname: true, lastname: true, role: true } } },
+  });
+  return ok(
+    rows.map((r) => ({
+      ...presentEvent(r),
+      // Drafts come from ambassadors and wait for an admin to approve them.
+      suggestedBy: r.status === 'DRAFT' && r.createdBy ? displayName(r.createdBy) : null,
+    }))
+  );
 }
 
 export async function adminCreateEventService(admin: Admin, input: EventInput) {

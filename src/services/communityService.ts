@@ -13,6 +13,11 @@ import {
   ok,
   rateLimit,
 } from './communityRules';
+import { Badge, badgeOf, badgesFor } from './communityBadges';
+import { ensureRolesTables } from './rolesTables';
+import { isAdmin } from './roles';
+import { schoolIdOf } from './partnerSchoolService';
+import { directUnreadCount } from './directChatService';
 
 /*
   Community for students: public channels, a private conversation with the
@@ -130,6 +135,7 @@ export function ensureCommunity(): Promise<void> {
   if (!prepared) {
     prepared = (async () => {
       await ensureCommunityTables();
+      await ensureRolesTables();
       for (const c of SEED_CHANNELS) {
         await db.communityChannel.upsert({ where: { slug: c.slug }, update: {}, create: c });
       }
@@ -183,7 +189,13 @@ async function reactionsFor(messageIds: string[], userId: string) {
   return map;
 }
 
-function presentMessage(m: MessageRow, me: AnyUser, reactions: ReactionSummary[] = []) {
+async function withBadges<T extends MessageRow>(rows: T[]) {
+  const users = rows.map((r) => r.user).filter(Boolean) as { id: string; role: string }[];
+  return badgesFor(users);
+}
+
+function presentMessage(m: MessageRow, me: AnyUser, reactions: ReactionSummary[] = [], badges?: Map<string, Badge>) {
+  const badge = m.user ? badges?.get(m.user.id) ?? null : null;
   return {
     id: m.id,
     body: m.body,
@@ -194,6 +206,7 @@ function presentMessage(m: MessageRow, me: AnyUser, reactions: ReactionSummary[]
       name: displayName(m.user),
       initials: initialsOf(m.user),
       staff: m.fromStaff,
+      badge,
     },
     reactions,
   };
@@ -276,14 +289,19 @@ function blockMessage(block: 'VERIFY_EMAIL' | 'MUTED', mutedUntil?: Date | null)
 
 export async function listChannelsService(user: AnyUser) {
   await ensureCommunity();
-  const [channels, memberships, profile] = await Promise.all([
+  const schoolId = await mySchoolId(user);
+  const [channels, memberships, profile, badge] = await Promise.all([
     db.communityChannel.findMany({
-      where: { archived: false },
+      where: {
+        archived: false,
+        ...(isAdmin(user) ? {} : { OR: [{ partnerSchoolId: null }, ...(schoolId ? [{ partnerSchoolId: schoolId }] : [])] }),
+      },
       orderBy: [{ position: 'asc' }, { createdAt: 'asc' }],
       include: { _count: { select: { memberships: true } } },
     }),
     db.communityMembership.findMany({ where: { userId: user.id } }),
     profileOf(user.id),
+    badgeOf({ id: user.id, role: user.role }),
   ]);
 
   const data = await Promise.all(
@@ -319,6 +337,8 @@ export async function listChannelsService(user: AnyUser) {
         name: c.name,
         description: c.description,
         welcome: c.welcome,
+        school: !!c.partnerSchoolId,
+        mySchool: !!c.partnerSchoolId && c.partnerSchoolId === schoolId,
         joined: !!membership,
         memberCount: c._count.memberships,
         unread,
@@ -335,7 +355,10 @@ export async function listChannelsService(user: AnyUser) {
       name: displayName(user),
       initials: initialsOf(user),
       staff: isStaff(user),
-      rulesAccepted: isStaff(user) || !!profile?.rulesAcceptedAt,
+      role: user.role || 'USER',
+      badge,
+      hasSchool: !!schoolId,
+      rulesAccepted: skipsRules(user) || !!profile?.rulesAcceptedAt,
       mutedUntil: profile?.mutedUntil && profile.mutedUntil > new Date() ? profile.mutedUntil : null,
       postBlock: block,
     },
@@ -352,16 +375,29 @@ export async function acceptRulesService(user: AnyUser) {
   return ok({ rulesAccepted: true }, 'Thanks for agreeing to the Community rules');
 }
 
-async function channelBySlug(slug: unknown) {
-  if (typeof slug !== 'string' || !/^[a-z0-9-]{2,60}$/.test(slug)) return null;
-  return db.communityChannel.findFirst({ where: { slug, archived: false } });
+/** The school a person belongs to (student or counsellor), cached for the request. */
+async function mySchoolId(user: AnyUser) {
+  return schoolIdOf({ id: user.id, role: String(user.role || 'USER') });
 }
+
+const canSee = (channel: { partnerSchoolId: string | null }, user: AnyUser, schoolId: string | null) =>
+  !channel.partnerSchoolId || isAdmin(user) || channel.partnerSchoolId === schoolId;
+
+async function channelBySlug(slug: unknown, user?: AnyUser) {
+  if (typeof slug !== 'string' || !/^[a-z0-9-]{2,60}$/.test(slug)) return null;
+  const channel = await db.communityChannel.findFirst({ where: { slug, archived: false } });
+  if (!channel || !user || !channel.partnerSchoolId) return channel;
+  return canSee(channel, user, await mySchoolId(user)) ? channel : null;
+}
+
+/** Counsellors are staff of a school: they do not need to accept the student rules page. */
+const skipsRules = (user: AnyUser) => isStaff(user) || user.role === 'COUNSELLOR';
 
 export async function joinChannelService(user: AnyUser, slug: unknown) {
   await ensureCommunity();
-  const channel = await channelBySlug(slug);
+  const channel = await channelBySlug(slug, user);
   if (!channel) return fail(404, 'Channel not found.');
-  if (!isStaff(user)) {
+  if (!skipsRules(user)) {
     const profile = await profileOf(user.id);
     if (!profile?.rulesAcceptedAt) {
       return fail(409, 'Please read and agree to the Community rules first.', { code: 'RULES_REQUIRED' });
@@ -377,7 +413,7 @@ export async function joinChannelService(user: AnyUser, slug: unknown) {
 
 export async function leaveChannelService(user: AnyUser, slug: unknown) {
   await ensureCommunity();
-  const channel = await channelBySlug(slug);
+  const channel = await channelBySlug(slug, user);
   if (!channel) return fail(404, 'Channel not found.');
   await db.communityMembership.deleteMany({ where: { channelId: channel.id, userId: user.id } });
   return ok({ joined: false }, `You left #${channel.name}`);
@@ -395,7 +431,7 @@ export async function channelMessagesService(
   query: { before?: unknown; after?: unknown; limit?: unknown }
 ) {
   await ensureCommunity();
-  const channel = await channelBySlug(slug);
+  const channel = await channelBySlug(slug, user);
   if (!channel) return fail(404, 'Channel not found.');
 
   const limit = Math.min(Math.max(Number(query.limit) || 50, 1), 100);
@@ -470,21 +506,31 @@ export async function channelMessagesService(
     await db.communityMembership.update({ where: { id: membership.id }, data: { lastReadAt: new Date() } });
   }
 
+  const badges = await withBadges([...rows, ...pinned]);
   return ok({
-    channel: { id: channel.id, slug: channel.slug, name: channel.name, description: channel.description, welcome: channel.welcome },
+    channel: {
+      id: channel.id,
+      slug: channel.slug,
+      name: channel.name,
+      description: channel.description,
+      welcome: channel.welcome,
+      school: !!channel.partnerSchoolId,
+    },
     joined: !!membership,
-    messages: rows.map((m) => presentMessage(m, user, reactions[m.id])),
+    // Counsellors can remove messages in their own school's channel.
+    canModerate: isStaff(user) || (user.role === 'COUNSELLOR' && !!channel.partnerSchoolId),
+    messages: rows.map((m) => presentMessage(m, user, reactions[m.id], badges)),
     hasMore,
     reactions,
     removed,
-    pinned: pinned.map((m) => presentMessage(m, user)),
+    pinned: pinned.map((m) => presentMessage(m, user, [], badges)),
     serverTime: new Date(),
   });
 }
 
 export async function postChannelMessageService(user: AnyUser, slug: unknown, rawBody: unknown) {
   await ensureCommunity();
-  const channel = await channelBySlug(slug);
+  const channel = await channelBySlug(slug, user);
   if (!channel) return fail(404, 'Channel not found.');
   const staff = isStaff(user);
 
@@ -516,19 +562,22 @@ export async function postChannelMessageService(user: AnyUser, slug: unknown, ra
     where: { channelId: channel.id, userId: user.id },
     data: { lastReadAt: new Date() },
   });
-  return ok(presentMessage(row, user, []), 'Sent', 201);
+  return ok(presentMessage(row, user, [], await withBadges([row])), 'Sent', 201);
 }
 
-async function visibleMessage(id: unknown) {
+async function visibleMessage(id: unknown, user?: AnyUser) {
   if (typeof id !== 'string' || id.length > 64) return null;
-  return db.communityMessage.findFirst({ where: { id, deletedAt: null } });
+  const message = await db.communityMessage.findFirst({ where: { id, deletedAt: null }, include: { channel: true } });
+  if (!message || !user || !message.channel.partnerSchoolId) return message;
+  return canSee(message.channel, user, await mySchoolId(user)) ? message : null;
 }
 
 export async function deleteOwnMessageService(user: AnyUser, id: unknown) {
   await ensureCommunity();
-  const message = await visibleMessage(id);
+  const message = await visibleMessage(id, user);
   if (!message) return fail(404, 'Message not found.');
-  if (message.userId !== user.id && !isStaff(user)) return fail(403, 'You can only delete your own messages.');
+  const schoolModerator = user.role === 'COUNSELLOR' && !!message.channel.partnerSchoolId; // visibleMessage already checked it is their school
+  if (message.userId !== user.id && !isStaff(user) && !schoolModerator) return fail(403, 'You can only delete your own messages.');
   await db.communityMessage.update({ where: { id: message.id }, data: { deletedAt: new Date() } });
   return ok({ id: message.id }, 'Message deleted');
 }
@@ -536,7 +585,7 @@ export async function deleteOwnMessageService(user: AnyUser, id: unknown) {
 export async function toggleReactionService(user: AnyUser, id: unknown, emoji: unknown) {
   await ensureCommunity();
   if (typeof emoji !== 'string' || !REACTIONS.includes(emoji)) return fail(400, 'Pick one of the reactions.');
-  const message = await visibleMessage(id);
+  const message = await visibleMessage(id, user);
   if (!message || message.hidden) return fail(404, 'Message not found.');
   if (!isStaff(user)) {
     const membership = await db.communityMembership.findUnique({
@@ -562,7 +611,7 @@ export async function toggleReactionService(user: AnyUser, id: unknown, emoji: u
 
 export async function reportMessageService(user: AnyUser, id: unknown, reason: unknown) {
   await ensureCommunity();
-  const message = await visibleMessage(id);
+  const message = await visibleMessage(id, user);
   if (!message) return fail(404, 'Message not found.');
   if (message.userId === user.id) return fail(400, "You can't report your own message.");
   const limit = rateLimit(`report:${user.id}`, { gapMs: 1000, max: 20, windowMs: 60 * 60 * 1000 });
@@ -668,7 +717,7 @@ export async function listEventsService(user: AnyUser, query: { from?: unknown; 
   const from = parseDate(query.from) || new Date(Date.now() - 200 * 24 * 3600 * 1000);
   const to = parseDate(query.to) || new Date(Date.now() + 400 * 24 * 3600 * 1000);
   const rows = await db.communityEvent.findMany({
-    where: { startsAt: { gte: from, lt: to } },
+    where: { startsAt: { gte: from, lt: to }, status: { not: 'DRAFT' } },
     orderBy: { startsAt: 'asc' },
     take: 300,
     include: eventInclude(user.id),
@@ -681,6 +730,7 @@ export async function getEventService(user: AnyUser, id: unknown) {
   if (typeof id !== 'string' || id.length > 64) return fail(404, 'Event not found.');
   const row = await db.communityEvent.findUnique({ where: { id }, include: eventInclude(user.id) });
   if (!row) return fail(404, 'Event not found.');
+  if (row.status === 'DRAFT' && row.createdById !== user.id && !isAdmin(user)) return fail(404, 'Event not found.');
   return ok(presentEvent(row));
 }
 
@@ -693,6 +743,7 @@ export async function setReminderService(user: AnyUser, id: unknown, on: boolean
   if (!event) return fail(404, 'Event not found.');
   if (on) {
     if (event.status === 'CANCELLED') return fail(400, 'This event was cancelled.');
+    if (event.status === 'DRAFT') return fail(400, 'This event has not been approved yet.');
     if (eventEnd(event) < new Date()) return fail(400, 'This event has already ended.');
     await db.communityEventReminder.upsert({
       where: { eventId_userId: { eventId: event.id, userId: user.id } },
@@ -738,9 +789,9 @@ export async function communitySummaryService(user: AnyUser) {
       include: eventInclude(user.id),
     }),
   ]);
-
+  const direct = await directUnreadCount(user.id);
   return ok({
-    unread: { channels, team, total: channels + team },
+    unread: { channels, team, direct: direct.unread, requests: direct.requests, total: channels + team + direct.unread + direct.requests },
     eventsThisWeek,
     nextEvent: next ? presentEvent(next) : null,
   });

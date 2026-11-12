@@ -2,6 +2,7 @@ import express from 'express';
 import {
   adminContCrtorLoginRequired,
   adminLoginRequired,
+  staffOrCounsellorLoginRequired,
   preventLoggedUser,
   superAdminLoginRequired,
 } from '../middlewares/auth';
@@ -76,7 +77,7 @@ router.post<{}, MessageResponse>(
 
 router.get<{}, MessageResponse>(
   '/admin/details',
-  adminLoginRequired,
+  staffOrCounsellorLoginRequired,
   authController.getAdmindetails
 );
 
@@ -90,13 +91,13 @@ router.patch<{}, MessageResponse>(
 // New routes for profile and password management
 router.patch<{}, MessageResponse>(
   '/admin/profile',
-  adminLoginRequired,
+  staffOrCounsellorLoginRequired,
   authController.updateAdminProfile
 );
 
 router.patch<{}, MessageResponse>(
   '/admin/password',
-  adminContCrtorLoginRequired,
+  staffOrCounsellorLoginRequired,
   authController.updateAdminPassword
 );
 

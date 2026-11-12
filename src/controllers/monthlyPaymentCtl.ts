@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { fulfilSeatPurchase, SCHOOL_REF_PREFIX } from '../services/partnerSchoolService';
 import {
   initializeBasicOneTimePayment,
   initializeMonthlySubscription,
@@ -176,6 +177,15 @@ export const verifyWebhook = async (
         event.data
       );
       return res.status(result.status).json(result);
+    }
+
+    // School seat payments (references start with ATSCH_): make the school's code.
+    if (typeof event?.data?.reference === 'string' && event.data.reference.startsWith(SCHOOL_REF_PREFIX)) {
+      if (event.event === 'charge.success') {
+        const result = await fulfilSeatPurchase(event.data.reference, Number(event.data.amount) || 0);
+        return res.status(200).json({ ok: result.ok, message: result.message });
+      }
+      return res.status(200).json({ ok: true, message: 'Webhook received' });
     }
 
     // Existing payment handling

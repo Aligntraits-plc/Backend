@@ -18,8 +18,12 @@ import {
   sendAdminDeleteEmail,
 } from './mailServices';
 import { db } from '../config/db';
+import { INVITABLE_STAFF, PANEL_STAFF } from './roles';
 
 dotenv.config();
+
+const isPanelRole = (role: string) => (PANEL_STAFF as readonly string[]).includes(role);
+const superAdminCount = () => db.user.count({ where: { role: 'SUPER_ADMIN' } });
 
 // Validation schema for admin profile (unchanged from your latest request)
 const adminProfileSchema = z.object({
@@ -49,6 +53,16 @@ export const createAdminProfileService = async (
   data: any
 ) => {
   try {
+    // Staff accounts are created by invitation now (POST /staff/invites): the new
+    // person sets their own password from an emailed link, so no password is ever
+    // chosen by someone else or sent by email.
+    if (process.env.ALLOW_DIRECT_STAFF_CREATE !== 'on') {
+      return {
+        status: 410,
+        message: 'Staff accounts are now created by invitation. Open Team and send an invitation.',
+        errors: [{ message: 'Staff accounts are now created by invitation.' }],
+      };
+    }
     // Check super admin permissions
     const superAdmin = await getUserById(superAdminId);
     if (!superAdmin || superAdmin.role !== 'SUPER_ADMIN') {
@@ -135,10 +149,7 @@ const adminProfileUpdateSchema = z.object({
     .min(10, 'Contact Number must be at least 10 digits')
     .max(15, 'Contact Number must not exceed 15 digits')
     .optional(),
-  password: z
-    .string()
-    .min(8, 'Password must be at least 8 characters')
-    .optional(),
+  role: z.enum(INVITABLE_STAFF, { message: 'Pick Super admin, Admin or Content manager' }).optional(),
 });
 
 export const updateAdminProfileService = async (
@@ -161,11 +172,16 @@ export const updateAdminProfileService = async (
 
     // Fetch the admin to update
     const adminToUpdate = await getUserById(adminId);
-    if (
-      !adminToUpdate ||
-      (adminToUpdate.role !== 'ADMIN' && adminToUpdate.role !== 'SUPER_ADMIN')
-    ) {
+    if (!adminToUpdate || !isPanelRole(adminToUpdate.role)) {
       return { status: 404, message: 'Admin profile not found' };
+    }
+    if (parsedData.role && parsedData.role !== adminToUpdate.role) {
+      if (adminToUpdate.id === superAdminId) {
+        return { status: 400, message: 'You cannot change your own role. Ask another super admin.' };
+      }
+      if (adminToUpdate.role === 'SUPER_ADMIN' && (await superAdminCount()) <= 1) {
+        return { status: 400, message: 'This is the only super admin. Make someone else a super admin first.' };
+      }
     }
 
     // Build update data dynamically
@@ -175,9 +191,8 @@ export const updateAdminProfileService = async (
     if (parsedData.email) updateData.email = parsedData.email;
     if (parsedData.contactNumber)
       updateData.contactNumber = parsedData.contactNumber;
-    if (parsedData.password)
-      updateData.password = await bcrypt.hash(parsedData.password, 10);
-    // Role is not updated; use existing adminToUpdate.role implicitly
+    if (parsedData.role) updateData.role = parsedData.role;
+    // Passwords are never set here: each person sets their own.
 
     const updatedAdmin = await updateUser(adminId, updateData);
 
@@ -235,11 +250,14 @@ export const deleteAdminProfileService = async (
     }
 
     const adminToDelete = await getUserById(adminId);
-    if (
-      !adminToDelete ||
-      (adminToDelete.role !== 'ADMIN' && adminToDelete.role !== 'SUPER_ADMIN')
-    ) {
+    if (!adminToDelete || !isPanelRole(adminToDelete.role)) {
       return { status: 404, message: 'Admin profile not found' };
+    }
+    if (adminToDelete.id === superAdminId) {
+      return { status: 400, message: 'You cannot remove your own account. Ask another super admin.' };
+    }
+    if (adminToDelete.role === 'SUPER_ADMIN' && (await superAdminCount()) <= 1) {
+      return { status: 400, message: 'This is the only super admin, so it cannot be removed.' };
     }
 
     await deleteUser(adminId);

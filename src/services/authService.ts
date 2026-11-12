@@ -30,7 +30,7 @@ dotenv.config();
 // nobody can flood a student's inbox or guess codes at scale.
 const EMAILS_PER_HOUR = 5;
 
-const STAFF_ROLES = ['ADMIN', 'SUPER_ADMIN', 'CONTENT_MANAGER', 'ANALYST'];
+const STAFF_ROLES = ['ADMIN', 'SUPER_ADMIN', 'CONTENT_MANAGER', 'ANALYST', 'COUNSELLOR'];
 
 // Emails are stored exactly as people typed them, so only trim spaces here.
 const normaliseEmail = (value: unknown) =>
@@ -70,12 +70,7 @@ const loginAdminService = async ({
     }
 
     // Check if the user has an admin role
-    if (
-      user.role !== 'ADMIN' &&
-      user.role !== 'SUPER_ADMIN' &&
-      user.role !== 'CONTENT_MANAGER' &&
-      user.role !== 'ANALYST'
-    ) {
+    if (!STAFF_ROLES.includes(user.role)) {
       return {
         ok: false,
         status: 403,
@@ -701,7 +696,7 @@ const updateAdminProfileService = async (adminId: string, requestData: any) => {
     const currentUser = await getUserById(adminId);
 
     // Check if user exists and is an admin
-    if (!currentUser || currentUser.role !== 'ADMIN') {
+    if (!currentUser || !STAFF_ROLES.includes(currentUser.role)) {
       return {
         status: 404,
         message: 'Admin user not found or not authorized',
@@ -813,9 +808,7 @@ const updateAdminPasswordService = async (adminId: string, data: any) => {
     if (
       !user ||
       user.id !== adminId ||
-      (user.role !== 'ADMIN' &&
-        user.role !== 'CONTENT_MANAGER' &&
-        user.role !== 'SUPER_ADMIN')
+      !STAFF_ROLES.includes(user.role)
     ) {
       return {
         status: 404,

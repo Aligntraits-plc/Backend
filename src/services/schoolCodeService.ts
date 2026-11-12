@@ -6,6 +6,8 @@ import { Prisma, PaymentPlan, Roles, TransactionStatus } from '@prisma/client';
 import { db } from '../config/db';
 import { createUser, getUserByEmail } from '../models/userModel';
 import { ensureSchoolCodeTables } from './schoolCodeTables';
+import { ensureRolesTables } from './rolesTables';
+import { linkStudentToSchool } from './partnerSchoolService';
 
 // No 0, O, 1, I or L, so codes are easy to read out and type.
 export const CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
@@ -86,6 +88,7 @@ function present(row: CodeRow) {
     expiresAt: row.expiresAt,
     status,
     daysLeft: expired ? 0 : Math.ceil((row.expiresAt.getTime() - now) / DAY),
+    partnerSchoolId: (row as any).partnerSchoolId ?? null,
   };
 }
 
@@ -103,12 +106,27 @@ export async function createSchoolCodeService({
   schoolName,
   seats,
   adminId,
+  partnerSchoolId,
+  days,
 }: {
   schoolName: unknown;
   seats?: unknown;
   adminId: string;
+  partnerSchoolId?: unknown;
+  days?: unknown;
 }) {
-  const name = typeof schoolName === 'string' ? schoolName.trim() : '';
+  // A code made by an admin for a partner school: the school does not pay for it.
+  let partner: { id: string; name: string } | null = null;
+  if (typeof partnerSchoolId === 'string' && partnerSchoolId) {
+    await ensureRolesTables();
+    partner = await db.partnerSchool.findUnique({ where: { id: partnerSchoolId }, select: { id: true, name: true } });
+    if (!partner) return fail(404, 'Partner school not found.');
+  }
+  const validDays = days === undefined || days === null || days === '' ? CODE_VALID_DAYS : Number(days);
+  if (!Number.isInteger(validDays) || validDays < 1 || validDays > 366) {
+    return fail(400, 'Days must be a whole number from 1 to 366.');
+  }
+  const name = partner ? partner.name : typeof schoolName === 'string' ? schoolName.trim() : '';
   if (name.length < 2 || name.length > 120) {
     return fail(400, 'Enter the school name (2 to 120 characters).');
   }
@@ -117,8 +135,8 @@ export async function createSchoolCodeService({
     return fail(400, `Seats must be a whole number from 1 to ${MAX_SEATS}.`);
   }
 
-  await ensureSchoolCodeTables();
-  const expiresAt = new Date(Date.now() + CODE_VALID_DAYS * DAY);
+  await ensureRolesTables(); // also prepares the school code tables
+  const expiresAt = new Date(Date.now() + validDays * DAY);
 
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
@@ -129,6 +147,7 @@ export async function createSchoolCodeService({
           seats: seatCount,
           createdById: adminId || null,
           expiresAt,
+          partnerSchoolId: partner?.id ?? null,
         },
       });
       return { ok: true, status: 201, message: 'School code created', data: present(row) };
@@ -142,14 +161,14 @@ export async function createSchoolCodeService({
 }
 
 export async function listSchoolCodesService() {
-  await ensureSchoolCodeTables();
+  await ensureRolesTables(); // also prepares the school code tables
   const rows = await db.schoolCode.findMany({ orderBy: { createdAt: 'desc' }, take: 200 });
   return { ok: true, status: 200, message: 'School codes', data: rows.map(present) };
 }
 
 export async function setSchoolCodeActiveService(id: string, active: unknown) {
   if (typeof active !== 'boolean') return fail(400, 'Send active as true or false.');
-  await ensureSchoolCodeTables();
+  await ensureRolesTables(); // also prepares the school code tables
   const row = await db.schoolCode.findUnique({ where: { id } });
   if (!row) return fail(404, 'School code not found.');
   const updated = await db.schoolCode.update({ where: { id }, data: { active } });
@@ -196,7 +215,7 @@ export async function redeemSchoolCodeService({
     return fail(400, 'School codes are 6 letters and numbers, like K7Q2PX.', { code: 'BAD_FORMAT' });
   }
 
-  await ensureSchoolCodeTables();
+  await ensureRolesTables(); // also prepares the school code tables
   const row = await db.schoolCode.findUnique({ where: { code } });
 
   if (!row) {
@@ -304,7 +323,66 @@ export async function redeemSchoolCodeService({
   }
 
   wrongByPerson.delete(person);
+  await linkCodeSchool(row.partnerSchoolId, account.id);
   return success(`You're covered by ${row.schoolName}.`);
+}
+
+/* A student who uses a partner school's code becomes one of that school's students
+   (unless they already chose another school themselves). */
+async function linkCodeSchool(partnerSchoolId: string | null, userId: string) {
+  if (!partnerSchoolId) return;
+  try {
+    const current = await db.partnerSchoolStudent.findUnique({ where: { userId } });
+    if (current && current.schoolId !== partnerSchoolId && !current.removedAt) return;
+    await linkStudentToSchool(userId, partnerSchoolId, 'code');
+  } catch (error) {
+    console.error('Could not link the student to the school:', error);
+  }
+}
+
+/* Gives a school-invited student a seat from the school's live code, when one is
+   left. Used when a counsellor invites a student by email: no code to type. */
+export async function applySchoolSeat(partnerSchoolId: string, userId: string) {
+  await ensureRolesTables(); // also prepares the school code tables
+  const user = await db.user.findUnique({ where: { id: userId }, select: { payment_plan: true, payment_plan_expires_at: true } });
+  if (!user) return false;
+  const active = user.payment_plan && (!user.payment_plan_expires_at || user.payment_plan_expires_at.getTime() > Date.now());
+  if (active) return false; // already covered (paid plan or another code)
+  const codes = await db.schoolCode.findMany({
+    where: { partnerSchoolId, active: true, expiresAt: { gt: new Date() } },
+    orderBy: { expiresAt: 'desc' },
+  });
+  for (const row of codes) {
+    if (row.used >= row.seats) continue;
+    try {
+      await db.$transaction(async (tx) => {
+        const claimed = await tx.$queryRaw<{ id: string }[]>`
+          UPDATE "school_codes" SET "used" = "used" + 1
+          WHERE "id" = ${row.id} AND "active" = true AND "used" < "seats" AND "expiresAt" > NOW()
+          RETURNING "id"`;
+        if (claimed.length === 0) throw new SeatsFullError();
+        await tx.schoolCodeRedemption.create({ data: { codeId: row.id, userId } });
+        await tx.user.update({ where: { id: userId }, data: { payment_plan: 'SCHOOL_PARTNER', payment_plan_expires_at: row.expiresAt } });
+        await tx.transaction.create({
+          data: {
+            userId,
+            paymentPlan: 'SCHOOL_PARTNER',
+            amount: 0,
+            currency: 'NGN',
+            reference: `school_${row.code}_${userId}`,
+            status: TransactionStatus.SUCCESS,
+            schoolLocation: row.schoolName,
+          },
+        });
+      });
+      return true;
+    } catch (error) {
+      if (error instanceof SeatsFullError) continue;
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') return true;
+      throw error;
+    }
+  }
+  return false;
 }
 
 // For the student's own profile: which school covers them, and until when.

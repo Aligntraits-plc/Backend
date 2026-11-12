@@ -9,6 +9,7 @@ import api from './api';
 import MessageResponse from './types/messageResponse';
 import { scheduleClearBulkOperationFailuresJob } from './jobs/clearBulkOperationFailuresJob';
 import { scheduleCommunityReminderJob } from './jobs/communityReminderJob';
+import { ensureRolesTables } from './services/rolesTables';
 
 require('dotenv').config();
 
@@ -37,6 +38,8 @@ app.use('/api/v1', api);
 // Start the cron job when the application starts
 scheduleClearBulkOperationFailuresJob();
 scheduleCommunityReminderJob();
+// Make sure the Roles v1 tables and columns exist before the first request needs them.
+ensureRolesTables();
 
 app.use(middlewares.notFound);
 app.use(middlewares.errorHandler);

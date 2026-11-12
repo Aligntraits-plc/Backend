@@ -59,9 +59,9 @@ const addToWaitlist = async ({ email }: { email: string }) => {
   } catch (e) {
     console.error('Error adding to waitlist:', e);
     throw e;
-  } finally {
-    await db.$disconnect();
   }
+  // No db.$disconnect() here: the database connection is shared by every request,
+  // and closing it after each sign-up made other people's requests fail.
 };
 
 export { addToWaitlist };

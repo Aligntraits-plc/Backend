@@ -44,20 +44,20 @@ router.get<{}, MessageResponse>(
 // get users and wait list by admin
 router.get<{}, MessageResponse>(
   '/admin/user-list-by-admin',
-  adminContCrtorLoginRequired,
+  adminLoginRequired,
   superAdminController.getUsersByAdmin // Renamed from listAdmins
 );
 
 // get waitlist users by admin
 router.get<{}, MessageResponse>(
   '/admin/waitlist',
-  adminContCrtorLoginRequired, // New endpoint for waitlist
+  adminLoginRequired, // New endpoint for waitlist
   superAdminController.getWaitListByAdmin // New controller method
 );
 
 router.get<{}, MessageResponse>(
   '/admin/user-details',
-  adminContCrtorLoginRequired, // New endpoint for user details
+  adminLoginRequired, // New endpoint for user details
   superAdminController.getUserDetailsByAdmin // New controller method
 );
 
