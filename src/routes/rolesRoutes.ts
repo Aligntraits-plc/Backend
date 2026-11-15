@@ -4,6 +4,7 @@ import {
   counsellorLoginRequired,
   loginRequired,
 } from '../middlewares/auth';
+import { getStudentSettingsService, saveStudentAcademicsService, saveStudentProfileService } from '../services/studentSettingsService';
 import { handle, me } from './handle';
 import {
   acceptInviteService,
@@ -160,6 +161,11 @@ router.post('/student/applications', loginRequired, handle((req) => saveApplicat
 router.patch('/student/applications', loginRequired, handle((req) => saveApplicationService(me(req), req.body || {})));
 router.delete('/student/applications/:id', loginRequired, handle((req) => removeApplicationService(me(req), req.params.id)));
 router.get('/student/parent-link', loginRequired, handle((req) => parentLinkService(me(req))));
+
+/* ---------- Student: Profile and settings ---------- */
+router.get('/student/settings', loginRequired, handle((req) => getStudentSettingsService(me(req))));
+router.put('/student/settings/profile', loginRequired, handle((req) => saveStudentProfileService(me(req), req.body || {})));
+router.put('/student/settings/academics', loginRequired, handle((req) => saveStudentAcademicsService(me(req), req.body || {})));
 router.get('/reports/parent/:token', handle((req) => publicParentReportService(req.params.token)));
 
 export default router;

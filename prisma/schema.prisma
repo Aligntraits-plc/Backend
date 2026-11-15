@@ -1017,3 +1017,27 @@ model StaffSeen {
 
   @@map("staff_seen")
 }
+
+// Extra details a student keeps under Profile and settings (profile, academic record notes).
+// One row per student. Scores and grades themselves stay in AcademicRecord.
+model StudentSettings {
+  userId           String   @id
+  middleName       String?
+  classLevel       String?
+  classArm         String?
+  stateOfOrigin    String?
+  whatsappSame     Boolean  @default(true)
+  guardianName     String?
+  guardianRelation String?
+  guardianPhone    String?
+  utmeYear         Int?
+  olevelStatus     String? // OUT or AWAITING
+  olevelYear       Int?
+  olevelSittings   Int?
+  directEntry      Boolean  @default(false)
+  directEntryType  String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@map("student_settings")
+}

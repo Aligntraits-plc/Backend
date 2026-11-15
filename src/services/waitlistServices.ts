@@ -37,7 +37,7 @@ const addToWaitlist = async ({ email }: { email: string }) => {
     // Send verification email
     const sent = await sendMail({
       recipients: [email],
-      subject: 'Welcome to AlignTraits - Your Waitlist Spot is Secured!',
+      subject: 'You are on the AlignTraits list',
       templateName: 'waitList', // Make sure this matches your template name
       templateInfo: { email, host }, // Ensure host is included here
     });
