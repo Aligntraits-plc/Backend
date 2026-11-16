@@ -3,8 +3,11 @@ import {
   adminLoginRequired,
   counsellorLoginRequired,
   loginRequired,
+  adminContCrtorLoginRequired,
 } from '../middlewares/auth';
 import { getStudentSettingsService, saveStudentAcademicsService, saveStudentProfileService } from '../services/studentSettingsService';
+import { adminListScholarshipsService, adminSaveScholarshipService, followScholarshipService, getFinanceService, saveFinanceService } from '../services/financeService';
+import { getWorkshopService, listWorkshopsService, notifyWorkshopService, workshopInterestService } from '../services/workshopService';
 import { handle, me } from './handle';
 import {
   acceptInviteService,
@@ -166,6 +169,21 @@ router.get('/student/parent-link', loginRequired, handle((req) => parentLinkServ
 router.get('/student/settings', loginRequired, handle((req) => getStudentSettingsService(me(req))));
 router.put('/student/settings/profile', loginRequired, handle((req) => saveStudentProfileService(me(req), req.body || {})));
 router.put('/student/settings/academics', loginRequired, handle((req) => saveStudentAcademicsService(me(req), req.body || {})));
+
+/* ---------- Student: Financing ---------- */
+router.get('/student/finance', loginRequired, handle((req) => getFinanceService(me(req))));
+router.put('/student/finance', loginRequired, handle((req) => saveFinanceService(me(req), req.body || {})));
+router.put('/student/finance/scholarships/:id', loginRequired, handle((req) => followScholarshipService(me(req), req.params.id, req.body?.on)));
+// Team: the scholarship list behind the Financing page
+router.get('/scholarships/admin', adminContCrtorLoginRequired, handle(() => adminListScholarshipsService()));
+router.post('/scholarships/admin', adminContCrtorLoginRequired, handle((req) => adminSaveScholarshipService(null, req.body || {})));
+router.patch('/scholarships/admin/:id', adminContCrtorLoginRequired, handle((req) => adminSaveScholarshipService(req.params.id, req.body || {})));
+
+/* ---------- Workshops ---------- */
+router.get('/workshops/admin/interest', adminContCrtorLoginRequired, handle(() => workshopInterestService()));
+router.get('/workshops', loginRequired, handle((req) => listWorkshopsService(me(req))));
+router.get('/workshops/:slug', loginRequired, handle((req) => getWorkshopService(me(req), req.params.slug)));
+router.put('/workshops/:slug/notify', loginRequired, handle((req) => notifyWorkshopService(me(req), req.params.slug, req.body?.on)));
 router.get('/reports/parent/:token', handle((req) => publicParentReportService(req.params.token)));
 
 export default router;

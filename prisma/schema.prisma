@@ -1036,8 +1036,62 @@ model StudentSettings {
   olevelSittings   Int?
   directEntry      Boolean  @default(false)
   directEntryType  String?
+  // Financing page
+  budgetYearly     Int?
+  budgetCovers     String? // JSON list: tuition, hostel, feeding, books
+  whoPays          String? // PARENTS, SCHOLARSHIP or BOTH
+  wantsNelfund     Boolean  @default(false)
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
   @@map("student_settings")
+}
+
+// Scholarships shown on the Financing page. Added and checked by the AlignTraits team.
+model Scholarship {
+  id         String    @id @default(cuid())
+  slug       String    @unique
+  name       String
+  funder     String
+  amountText String // for example "₦250,000 a year" or "Amount not published"
+  windowText String // for example "Usually January to March"
+  closesAt   DateTime? // set when a real closing date is confirmed
+  link       String?
+  forText    String // who it is for, in a few words
+  level      String    @default("ANY") // ANY, ENTRY (100 level) or FROM_200
+  states     String? // JSON list of states of origin, empty for any
+  arms       String? // JSON list of class arms, empty for any
+  gender     String? // FEMALE or MALE, empty for any
+  schoolName String? // only for students of this university
+  active     Boolean   @default(true)
+  checkedAt  DateTime?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+  follows    ScholarshipFollow[]
+
+  @@map("scholarships")
+}
+
+// A student asked for deadline reminders for a scholarship.
+model ScholarshipFollow {
+  scholarshipId String
+  userId        String
+  createdAt     DateTime    @default(now())
+  sentWeek      DateTime?
+  sentDay       DateTime?
+  scholarship   Scholarship @relation(fields: [scholarshipId], references: [id], onDelete: Cascade)
+
+  @@id([scholarshipId, userId])
+  @@index([userId])
+  @@map("scholarship_follows")
+}
+
+// A student tapped "Notify me when this opens" on a workshop course.
+model WorkshopInterest {
+  courseSlug String
+  userId     String
+  createdAt  DateTime @default(now())
+
+  @@id([courseSlug, userId])
+  @@map("workshop_interest")
 }

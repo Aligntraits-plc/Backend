@@ -1,5 +1,6 @@
 import cron from 'node-cron';
 import { runCommunityReminders } from '../services/communityMail';
+import { runScholarshipReminders } from '../services/financeService';
 
 // Every 5 minutes: email students who tapped "Remind me" on an event,
 // a day before and an hour before it starts.
@@ -14,6 +15,9 @@ export const scheduleCommunityReminderJob = () => {
     try {
       const sent = await runCommunityReminders();
       if (sent > 0) console.log(`Community reminders sent: ${sent}`);
+      // Scholarship deadline reminders (Financing page) use the same switch.
+      const scholarships = await runScholarshipReminders();
+      if (scholarships > 0) console.log(`Scholarship reminders sent: ${scholarships}`);
     } catch (error) {
       console.error('Community reminder job failed:', error);
     } finally {

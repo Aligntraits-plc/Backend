@@ -78,6 +78,26 @@ async function sendInviteEmail(row: InviteRow, token: string, schoolName: string
           `${actor.firstname || 'The AlignTraits team'} has invited you to join ${what}.`,
           'Open the link below to set your name and password. After that you can sign in.',
         ];
+  if (row.role === 'COUNSELLOR') {
+    const school = schoolName || 'your school';
+    return sendNotice({
+      to: row.email,
+      subject: `You are invited as a counsellor for ${school}, in partnership with AlignTraits`,
+      name: 'there',
+      label: 'Invitation',
+      headline: `Counsellor invitation for ${school}`,
+      lines: [
+        `We are inviting you as a counsellor for ${school}, in partnership with AlignTraits.`,
+        'With AlignTraits, we will be providing you with tools to give better counselling to students and parents who are confused about career paths and are about to apply to university.',
+      ],
+      stepsTitle: 'Here are the 3 steps to set up your account:',
+      steps: ['Click on the link below.', 'Provide your details.', 'You will be redirected to the AlignTraits login page to sign in.'],
+      details: [{ label: 'This link works until', value: row.expiresAt.toLocaleDateString('en-GB', { timeZone: 'Africa/Lagos', day: 'numeric', month: 'long', year: 'numeric' }) }],
+      ctaUrl: link,
+      ctaLabel: 'Set up my counsellor account',
+      footer: 'If you were not expecting this, you can ignore this email. Nothing happens until the link is opened.',
+    });
+  }
   return sendNotice({
     to: row.email,
     subject: row.role === 'AMBASSADOR' ? 'You are invited to be an AlignTraits ambassador' : `Your invitation to ${what}`,

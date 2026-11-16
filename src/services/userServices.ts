@@ -233,10 +233,6 @@ export const updatePasswordService = async (
     }
 
     // Validate new password and confirm password match
-    console.log('Validating new password match:', {
-      newPassword,
-      confirmPassword,
-    });
     if (newPassword !== confirmPassword) {
       console.log('New password and confirm password do not match');
       return {

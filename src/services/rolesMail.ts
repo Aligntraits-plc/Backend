@@ -10,6 +10,9 @@ type Notice = {
   label?: string;
   headline: string;
   lines: string[];
+  /** Optional numbered steps, shown after the lines. */
+  stepsTitle?: string;
+  steps?: string[];
   details?: { label: string; value: string }[];
   ctaUrl?: string;
   ctaLabel?: string;
@@ -28,6 +31,8 @@ export async function sendNotice(n: Notice): Promise<boolean> {
         headline: n.headline,
         name: n.name,
         lines: n.lines,
+        stepsTitle: n.stepsTitle || '',
+        steps: n.steps || [],
         details: n.details || [],
         ctaUrl: n.ctaUrl || '',
         ctaLabel: n.ctaLabel || '',
