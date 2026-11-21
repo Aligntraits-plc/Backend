@@ -18,6 +18,7 @@ import {
   countRecentTokens,
 } from '../models/tokenModel';
 import { generateOTP } from '../lib/utils';
+import { WRONG_DETAILS, clearFailures, lockedMinutes, lockedReply, recordFailure } from './loginGuard';
 import {
   sendConfirmationEmail,
   sendResetPasswordEmail,
@@ -59,35 +60,23 @@ const loginAdminService = async ({
       };
     }
 
+    const wait = await lockedMinutes(email);
+    if (wait) return lockedReply(wait);
+
+    // One message for a wrong email, a wrong password and a non-staff account,
+    // so the sign in page never reveals who has an account.
+    const wrong = async () => {
+      const nowLocked = await recordFailure(email);
+      return nowLocked
+        ? lockedReply(60)
+        : { ok: false, status: 401, message: 'Login failed', errors: [{ message: WRONG_DETAILS }] };
+    };
+
     const user = await getUserByEmail(email);
-    if (!user) {
-      return {
-        ok: false,
-        status: 404,
-        message: 'Login failed',
-        errors: [{ message: 'Admin does not exist' }],
-      };
-    }
-
-    // Check if the user has an admin role
-    if (!STAFF_ROLES.includes(user.role)) {
-      return {
-        ok: false,
-        status: 403,
-        message: 'Login failed',
-        errors: [{ message: 'You are not authorized to log in as an admin' }],
-      };
-    }
-
+    if (!user || !user.password) return wrong();
     const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return {
-        ok: false,
-        status: 400,
-        message: 'Login failed',
-        errors: [{ message: 'Invalid password' }],
-      };
-    }
+    if (!isPasswordValid || !STAFF_ROLES.includes(user.role)) return wrong();
+    await clearFailures(email);
 
     const token = jwt.sign(
       { userId: user.id },
@@ -245,15 +234,20 @@ const loginService = async ({
       };
     }
 
+    const wait = await lockedMinutes(email);
+    if (wait) return lockedReply(wait);
+
+    // One message for a wrong email and a wrong password, so the sign in page
+    // never reveals who has an account.
+    const wrong = async () => {
+      const nowLocked = await recordFailure(email);
+      return nowLocked
+        ? lockedReply(60)
+        : { ok: false, status: 401, message: 'Login failed', errors: [{ message: WRONG_DETAILS }] };
+    };
+
     const user = await getUserByEmail(email);
-    if (!user) {
-      return {
-        ok: false,
-        status: 404,
-        message: 'Login failed',
-        errors: [{ message: 'User does not exist' }],
-      };
-    }
+    if (!user) return wrong();
 
     // Accounts made by the quiz, a check or a payment have no password yet.
     // The site sends them to the set-password page (a code is emailed there).
@@ -267,6 +261,11 @@ const loginService = async ({
       };
     }
 
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    if (!isPasswordValid) return wrong();
+    await clearFailures(email);
+
+    // Only someone who knows the password learns that the email is unverified.
     if (!user.emailVerified) {
       await emailVerificationService(user.email); // Resend the verification email
       return {
@@ -276,19 +275,9 @@ const loginService = async ({
         errors: [
           {
             message:
-              "Email has not been verified. We've send a new one to your email",
+              "Your email is not verified yet. We have sent you a new link.",
           },
         ],
-      };
-    }
-
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return {
-        ok: false,
-        status: 400,
-        message: 'Login failed',
-        errors: [{ message: 'Invalid password' }],
       };
     }
 
@@ -597,6 +586,7 @@ const resetPasswordService = async ({
         ...(user.emailVerified ? {} : { emailVerified: new Date() }),
       }),
       deleteEmailVerificationToken(email),
+      clearFailures(email),
     ]);
 
     if (!updatedData) {
@@ -1017,6 +1007,7 @@ const addPasswordAfterEligibiltyService = async ({
       ...(user.emailVerified ? {} : { emailVerified: now }),
     });
     await deleteEmailVerificationToken(email);
+    await clearFailures(email);
 
     // Log them straight in, so they land on their results without a second step.
     const loginToken = jwt.sign(
